@@ -115,13 +115,17 @@ public class DICOMWebApiController implements DICOMWebApi {
             subjectName = subjectName.replaceAll("^\\*+", "").replaceAll("\\*+$", "");
             examinations = examinationService.findPage(pageable, subjectName);
         } else {
-            // 2. Manage still existing case with single study instance UID
+            // 2. Manage still existing case with one or several study instance UIDs (comma separated)
             List<Examination> examinationList = new ArrayList<>();
             String studyInstanceUID = allParams.get(STUDY_INSTANCE_UID);
             if (studyInstanceUID != null) {
-                String examinationIdString = studyInstanceUID.substring(studyInstanceUID.lastIndexOf(".") + 1, studyInstanceUID.length());
-                Examination examination = examinationService.findById(Long.valueOf(examinationIdString));
-                examinationList.add(examination);
+                for (String uid : studyInstanceUID.split(",")) {
+                    String examinationIdString = uid.substring(uid.lastIndexOf(".") + 1);
+                    Examination examination = examinationService.findById(Long.valueOf(examinationIdString));
+                    if (examination != null) {
+                        examinationList.add(examination);
+                    }
+                }
             }
             // 3. Manage case, that nothing specific was found and return depending on pageable
             if (examinationList.isEmpty()) {
