@@ -185,15 +185,20 @@ public class DICOMWebApiController implements DICOMWebApi {
                 // but no images remain in DICOM server anymore
                 continue;
             }
-            JsonNode root = mapper.readTree(studyJson);
-            studyInstanceUIDAndSubjectNameHandler.replaceStudyInstanceUIDAndPatientInfo(root, examinationUID, true, subjectName);
-            studyJson = mapper.writeValueAsString(root);
-            studyJson = studyJson.substring(1, studyJson.length() - 1);
-            if (appended) {
-                studies.append(",");
+            try {
+                JsonNode root = mapper.readTree(studyJson);
+                studyInstanceUIDAndSubjectNameHandler.replaceStudyInstanceUIDAndPatientInfo(root, examinationUID, true, subjectName);
+                studyJson = mapper.writeValueAsString(root);
+                studyJson = studyJson.substring(1, studyJson.length() - 1);
+                if (appended) {
+                    studies.append(",");
+                }
+                studies.append(studyJson);
+                appended = true;
+            } catch (JsonProcessingException e) {
+                LOG.error("DICOMWeb: findStudies: PACS returned non-JSON for studyInstanceUID {} (includeField={}): {}",
+                        studyInstanceUID, includeField, e.getOriginalMessage());
             }
-            studies.append(studyJson);
-            appended = true;
         }
         studies.append("]");
         return studies.toString();

@@ -140,11 +140,12 @@ public class DICOMWebService {
             HttpGet httpGet = new HttpGet(url);
             httpGet.setHeader("Accept-Charset", "UTF-8");
             try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
+                int status = response.getCode();
                 HttpEntity entity = response.getEntity();
-                if (entity != null) {
+                if (entity != null && status >= 200 && status < 300) {
                     return EntityUtils.toString(entity, "UTF-8");
                 } else {
-                    LOG.error("DICOMWeb: findStudy: empty response entity for studyInstanceUID: " + studyInstanceUID);
+                    LOG.error("DICOMWeb: findStudy: HTTP {} for studyInstanceUID: {}", status, studyInstanceUID);
                 }
             }
         } catch (Exception e) {
