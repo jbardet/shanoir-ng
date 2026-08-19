@@ -142,7 +142,9 @@ public class DICOMWebApiController implements DICOMWebApi {
             if (studyInstanceUID != null) {
                 String examinationIdString = studyInstanceUID.substring(studyInstanceUID.lastIndexOf(".") + 1, studyInstanceUID.length());
                 Examination examination = examinationService.findById(Long.valueOf(examinationIdString));
-                examinationList.add(examination);
+                if (examination != null) {
+                    examinationList.add(examination);
+                }
             }
             // 3. Manage case, that nothing specific was found and return depending on pageable
             if (examinationList.isEmpty()) {
@@ -163,8 +165,12 @@ public class DICOMWebApiController implements DICOMWebApi {
         StringBuffer studies = new StringBuffer();
         studies.append("[");
         Iterator<Examination> iterator = examinations.iterator();
+        boolean appended = false;
         while (iterator.hasNext()) {
             Examination examination = iterator.next();
+            if (examination == null) {
+                continue;
+            }
             String examinationUID = StudyInstanceUIDAndSubjectNameHandler.PREFIX + examination.getId();
             String studyInstanceUID = studyInstanceUIDAndSubjectNameHandler.findStudyInstanceUIDFromCacheOrDatabase(examinationUID);
             String subjectName = studyInstanceUIDAndSubjectNameHandler
@@ -183,10 +189,11 @@ public class DICOMWebApiController implements DICOMWebApi {
             studyInstanceUIDAndSubjectNameHandler.replaceStudyInstanceUIDAndPatientInfo(root, examinationUID, true, subjectName);
             studyJson = mapper.writeValueAsString(root);
             studyJson = studyJson.substring(1, studyJson.length() - 1);
-            studies.append(studyJson);
-            if (iterator.hasNext()) {
+            if (appended) {
                 studies.append(",");
             }
+            studies.append(studyJson);
+            appended = true;
         }
         studies.append("]");
         return studies.toString();

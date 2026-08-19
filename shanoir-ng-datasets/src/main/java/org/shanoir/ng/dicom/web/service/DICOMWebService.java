@@ -133,7 +133,10 @@ public class DICOMWebService {
 
     public String findStudy(String studyInstanceUID, String includeField) {
         try {
-            String url = this.serverURL + "?StudyInstanceUID=" + studyInstanceUID + "&includefield=" + includeField;
+            String url = this.serverURL + "?StudyInstanceUID=" + studyInstanceUID;
+            if (includeField != null && !includeField.isEmpty()) {
+                url += "&includefield=" + includeField;
+            }
             HttpGet httpGet = new HttpGet(url);
             httpGet.setHeader("Accept-Charset", "UTF-8");
             try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
