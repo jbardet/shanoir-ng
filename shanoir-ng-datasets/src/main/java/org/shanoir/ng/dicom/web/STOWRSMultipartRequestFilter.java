@@ -54,8 +54,8 @@ import jakarta.servlet.http.HttpServletResponse;
  * is used to send segmentations (SEG) to the Shanoir backend for storage.
  *
  * 2) This request filter is used by Karnak or any other DICOM gateway to
- * import DICOM files into Shanoir (file-by-file, eiter in one multipart
- * request or multiple requests).
+ * import DICOM files into Shanoir (file-by-file, either in one multipart
+ * request or multiple requests), including RT IODs (RTSTRUCT, RTDOSE, RTPLAN).
  *
  * It might look weird to use a request filter for this purpose and not
  * manage this inside the standard REST controller. After two days of search
@@ -100,6 +100,12 @@ public class STOWRSMultipartRequestFilter extends GenericFilterBean {
     private static final String DICOM_MODALITY_PT = "PT";
 
     private static final String DICOM_MODALITY_NM = "NM";
+
+    private static final String DICOM_MODALITY_RTSTRUCT = "RTSTRUCT";
+
+    private static final String DICOM_MODALITY_RTDOSE = "RTDOSE";
+
+    private static final String DICOM_MODALITY_RTPLAN = "RTPLAN";
 
     @Autowired
     @Lazy
@@ -154,13 +160,10 @@ public class STOWRSMultipartRequestFilter extends GenericFilterBean {
                     LOG.error("Error during import of DICOM SEG/SR.");
                     throw new ServletException("Error during import of DICOM SEG/SR.");
                 }
-            } else if (DICOM_MODALITY_MR.equals(modality)
-                    || DICOM_MODALITY_CT.equals(modality)
-                    || DICOM_MODALITY_PT.equals(modality)
-                    || DICOM_MODALITY_NM.equals(modality)) {
+            } else if (isDicomImporterModality(modality)) {
                 if (!dicomImporterService.importDicom(metaInformationAttributes, datasetAttributes)) {
-                    LOG.error("Error during import of DICOM MR/CT/PT/NM.");
-                    throw new ServletException("Error during import of DICOM MR/CT/PT/NM.");
+                    LOG.error("Error during import of DICOM {}.", modality);
+                    throw new ServletException("Error during import of DICOM " + modality + ".");
                 }
             } else {
                 LOG.error("Not supported DICOM modality sent: {}", modality);
@@ -169,6 +172,16 @@ public class STOWRSMultipartRequestFilter extends GenericFilterBean {
         } catch (Exception e) {
             throw e;
         }
+    }
+
+    private static boolean isDicomImporterModality(String modality) {
+        return DICOM_MODALITY_MR.equals(modality)
+                || DICOM_MODALITY_CT.equals(modality)
+                || DICOM_MODALITY_PT.equals(modality)
+                || DICOM_MODALITY_NM.equals(modality)
+                || DICOM_MODALITY_RTSTRUCT.equals(modality)
+                || DICOM_MODALITY_RTDOSE.equals(modality)
+                || DICOM_MODALITY_RTPLAN.equals(modality);
     }
 
 }
