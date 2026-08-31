@@ -249,13 +249,14 @@ public class DICOMWebApiControllerTest {
                 .accept(DICOM_JSON))
                 .andExpect(status().isOk())
                 // the intruder series of the PACS study is filtered out, the SEG
-                // series of acquisition 101 and the processing output are appended
-                .andExpect(jsonPath("$.length()").value(4))
+                // and RTSTRUCT series of acquisition 101 and the processing output are appended
+                .andExpect(jsonPath("$.length()").value(5))
                 // sorted by SeriesNumber (1, 2, 3, SEG without number last)
                 .andExpect(jsonPath("$[0]['0020000E'].Value[0]").value(ACQUISITION_UID_100))
                 .andExpect(jsonPath("$[1]['0020000E'].Value[0]").value(ACQUISITION_UID_101))
                 .andExpect(jsonPath("$[2]['0020000E'].Value[0]").value(DATASET_UID_600))
                 .andExpect(jsonPath("$[3]['0020000E'].Value[0]").value(DATASET_UID_500))
+                .andExpect(jsonPath("$[4]['0020000E'].Value[0]").value(DATASET_UID_700))
                 // the real StudyInstanceUID is replaced with the examinationUID
                 .andExpect(jsonPath("$[0]['0020000D'].Value[0]").value(EXAMINATION_UID))
                 // RetrieveURLs reference virtual UIDs only
@@ -267,6 +268,7 @@ public class DICOMWebApiControllerTest {
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_ACQ_101))))
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_SEG_DATASET_500))))
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_OUTPUT_DATASET_600))))
+                .andExpect(content().string(not(Matchers.containsString(SERIES_UID_RTSTRUCT_DATASET_700))))
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_INTRUDER))));
     }
 
@@ -277,11 +279,12 @@ public class DICOMWebApiControllerTest {
                 .queryParam("SeriesInstanceUID", ACQUISITION_UID_101)
                 .accept(DICOM_JSON))
                 .andExpect(status().isOk())
-                // the primary series and the SEG series of acquisition 101, but
+                // the primary series and the SEG/RTSTRUCT series of acquisition 101, but
                 // neither the series of acquisition 100 nor the processing output
-                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0]['0020000E'].Value[0]").value(ACQUISITION_UID_101))
                 .andExpect(jsonPath("$[1]['0020000E'].Value[0]").value(DATASET_UID_500))
+                .andExpect(jsonPath("$[2]['0020000E'].Value[0]").value(DATASET_UID_700))
                 .andExpect(content().string(not(Matchers.containsString(STUDY_UID))))
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_ACQ_101))))
                 .andExpect(content().string(not(Matchers.containsString(SERIES_UID_SEG_DATASET_500))));

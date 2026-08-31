@@ -21,6 +21,9 @@ window.__dirname = window.__dirname || '/';
 
 window.config = {
 	routerBasename: null,
+	// Empty arrays keep the ohif/app:v3.12.5 defaults, including
+	// @ohif/extension-cornerstone-dicom-rt and the dicom-rt viewport in
+	// the viewer and segmentation modes.
 	extensions: [],
 	modes: [],
 	experimentalStudyBrowserSort: true,
@@ -32,7 +35,28 @@ window.config = {
 				$set: 'primary',
 			},
 		},
+		{
+			// RTSTRUCT overlays are read-only in Shanoir (no RT editing yet).
+			'panelSegmentation.disableEditing': {
+				$set: true,
+			},
+		},
 	],
+	modesConfiguration: {
+		'@ohif/mode-longitudinal': {
+			routes: {
+				0: {
+					layoutInstance: {
+						props: {
+							// Keep the segmentation panel open so RTSTRUCT contour
+							// overlays are visible and toggleable on CT/MR viewports.
+							rightPanelClosed: { $set: false },
+						},
+					},
+				},
+			},
+		},
+	},
 	maxNumRequests: {
 		interaction: SHANOIR_VIEWER_OHIF_INTERACTION_NUM_REQUESTS,
 		thumbnail: SHANOIR_VIEWER_OHIF_THUMBNAIL_NUM_REQUESTS,
@@ -55,7 +79,13 @@ window.config = {
 				enableStudyLazyLoad: true,
 				supportsFuzzyMatching: true,
 				supportsWildcard: true,
-				omitQuotationForMultipartRequest: false
+				omitQuotationForMultipartRequest: false,
+				// RTSTRUCT contour data may be exposed as BulkDataURI in metadata;
+				// Shanoir DICOMweb rewrites those URIs to the public facade.
+				bulkDataURI: {
+					enabled: true,
+					relativeResolution: 'studies',
+				},
 			},
 		},
 	],

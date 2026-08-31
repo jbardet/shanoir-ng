@@ -16,9 +16,11 @@ package org.shanoir.ng.dicom.web;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -69,6 +71,14 @@ public class DICOMWebApiController implements DICOMWebApi {
     private static final String SERIES_NUMBER = "00200011";
 
     private static final String SERIES_INSTANCE_UID_TAG = "0020000E";
+
+    private static final String MODALITY_TAG = "00080060";
+
+    private static final String SERIES_DESCRIPTION_TAG = "0008103E";
+
+    private static final String NUMBER_OF_SERIES_RELATED_INSTANCES_TAG = "00201209";
+
+    private static final String STUDY_INSTANCE_UID_TAG = "0020000D";
 
     private static final String STUDY_INSTANCE_UID = "StudyInstanceUID";
 
@@ -233,6 +243,7 @@ public class DICOMWebApiController implements DICOMWebApi {
             if (response != null) {
                 JsonNode root = mapper.readTree(response);
                 root = filterAndSortSeries(root, seriesToVirtualUIDs);
+                root = appendMissingSeriesFromShanoir(studyInstanceUID, root, seriesToVirtualUIDs);
                 studyInstanceUIDAndSubjectNameHandler.replaceStudyInstanceUIDAndPatientInfo(root, examinationUID, false, subjectName);
                 seriesInstanceUIDHandler.replaceSeriesInstanceUIDs(root, seriesToVirtualUIDs);
                 return new ResponseEntity<String>(mapper.writeValueAsString(root), HttpStatus.OK);
@@ -269,6 +280,96 @@ public class DICOMWebApiController implements DICOMWebApi {
         return root;
     }
 
+    /**
+     * The PACS QIDO response may omit derived series (SEG, RTSTRUCT, …) that
+     * Shanoir already knows about from its database. OHIF needs every series
+     * entry to discover RT overlays, so synthesize minimal QIDO-RS series
+     * objects from instance metadata for any missing mapped series.
+     */
+    private JsonNode appendMissingSeriesFromShanoir(String studyInstanceUID, JsonNode filteredRoot,
+            Map<String, String> seriesToVirtualUIDs) throws JsonProcessingException {
+        if (!filteredRoot.isArray() || seriesToVirtualUIDs.isEmpty()) {
+            return filteredRoot;
+        }
+        Set<String> seriesInResponse = new HashSet<>();
+        filteredRoot.forEach(node -> seriesInResponse.add(
+                node.path(SERIES_INSTANCE_UID_TAG).path(VALUE).path(0).asText()));
+        ArrayNode resultArrayNode = mapper.createArrayNode();
+        filteredRoot.forEach(resultArrayNode::add);
+        for (Map.Entry<String, String> seriesToVirtualUID : seriesToVirtualUIDs.entrySet()) {
+            String realSeriesInstanceUID = seriesToVirtualUID.getKey();
+            String virtualUID = seriesToVirtualUID.getValue();
+            if (seriesInResponse.contains(realSeriesInstanceUID)
+                    || !datasetSecurityService.hasRightToVisualizeSeries(virtualUID)) {
+                continue;
+            }
+            String metadataResponse = dicomWebService.findSerieMetadataOfStudy(studyInstanceUID,
+                    realSeriesInstanceUID);
+            if (metadataResponse == null) {
+                continue;
+            }
+            JsonNode metadataRoot = mapper.readTree(metadataResponse);
+            JsonNode seriesEntry = buildSeriesEntryFromMetadata(metadataRoot, studyInstanceUID, realSeriesInstanceUID);
+            if (seriesEntry != null) {
+                resultArrayNode.add(seriesEntry);
+                seriesInResponse.add(realSeriesInstanceUID);
+            }
+        }
+        List<JsonNode> sorted = new ArrayList<>();
+        resultArrayNode.forEach(sorted::add);
+        sorted.sort(Comparator.comparingInt(
+                node -> node.path(SERIES_NUMBER).path(VALUE).path(0).asInt(Integer.MAX_VALUE)));
+        ArrayNode sortedArray = mapper.createArrayNode();
+        sorted.forEach(sortedArray::add);
+        return sortedArray;
+    }
+
+    private JsonNode buildSeriesEntryFromMetadata(JsonNode metadataRoot, String studyInstanceUID,
+            String seriesInstanceUID) {
+        if (!metadataRoot.isArray() || metadataRoot.isEmpty()) {
+            return null;
+        }
+        JsonNode instance = metadataRoot.get(0);
+        ObjectNode seriesEntry = mapper.createObjectNode();
+        copyTagIfPresent(instance, seriesEntry, MODALITY_TAG);
+        copyTagIfPresent(instance, seriesEntry, SERIES_DESCRIPTION_TAG);
+        copyTagIfPresent(instance, seriesEntry, SERIES_INSTANCE_UID_TAG);
+        copyTagIfPresent(instance, seriesEntry, STUDY_INSTANCE_UID_TAG);
+        copyTagIfPresent(instance, seriesEntry, SERIES_NUMBER);
+        if (!seriesEntry.has(NUMBER_OF_SERIES_RELATED_INSTANCES_TAG)) {
+            ObjectNode numberOfInstances = mapper.createObjectNode();
+            numberOfInstances.put("vr", "IS");
+            ArrayNode values = mapper.createArrayNode();
+            values.add(metadataRoot.size());
+            numberOfInstances.set(VALUE, values);
+            seriesEntry.set(NUMBER_OF_SERIES_RELATED_INSTANCES_TAG, numberOfInstances);
+        }
+        if (!seriesEntry.has(STUDY_INSTANCE_UID_TAG)) {
+            ObjectNode studyUID = mapper.createObjectNode();
+            studyUID.put("vr", "UI");
+            ArrayNode values = mapper.createArrayNode();
+            values.add(studyInstanceUID);
+            studyUID.set(VALUE, values);
+            seriesEntry.set(STUDY_INSTANCE_UID_TAG, studyUID);
+        }
+        if (!seriesEntry.has(SERIES_INSTANCE_UID_TAG)) {
+            ObjectNode seriesUID = mapper.createObjectNode();
+            seriesUID.put("vr", "UI");
+            ArrayNode values = mapper.createArrayNode();
+            values.add(seriesInstanceUID);
+            seriesUID.set(VALUE, values);
+            seriesEntry.set(SERIES_INSTANCE_UID_TAG, seriesUID);
+        }
+        return seriesEntry;
+    }
+
+    private void copyTagIfPresent(JsonNode source, ObjectNode target, String tag) {
+        JsonNode value = source.get(tag);
+        if (value != null) {
+            target.set(tag, value);
+        }
+    }
+
     @Override
     public ResponseEntity<String> findSerieMetadataOfStudy(String examinationUID, String serieId)
             throws RestServiceException, JsonMappingException, JsonProcessingException {
@@ -292,7 +393,7 @@ public class DICOMWebApiController implements DICOMWebApi {
             // RT Structure Set in the RTReferencedStudySequence, and the viewer
             // only knows the examinationUID
             studyInstanceUIDAndSubjectNameHandler.replaceStudyInstanceUID(root, studyInstanceUID, examinationUID);
-            rewriteBulkDataURIs(root, studyInstanceUID, examinationUID, serieInstanceUID, serieId);
+            rewriteBulkDataURIs(root, studyInstanceUID, examinationUID, seriesToVirtualUIDs);
             return new ResponseEntity<String>(mapper.writeValueAsString(root), HttpStatus.OK);
         } else {
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
@@ -308,30 +409,30 @@ public class DICOMWebApiController implements DICOMWebApi {
      * the viewer can reach it and never sees real UIDs.
      */
     private void rewriteBulkDataURIs(JsonNode root, String studyInstanceUID, String examinationUID,
-            String serieInstanceUID, String acquisitionUID) {
+            Map<String, String> seriesToVirtualUIDs) {
         if (root.isArray()) {
             for (JsonNode element : root) {
-                rewriteBulkDataURIs(element, studyInstanceUID, examinationUID, serieInstanceUID, acquisitionUID);
+                rewriteBulkDataURIs(element, studyInstanceUID, examinationUID, seriesToVirtualUIDs);
             }
         } else if (root.isObject()) {
             JsonNode bulkDataURINode = root.get(BULK_DATA_URI);
             if (bulkDataURINode != null && bulkDataURINode.isTextual()) {
                 String rewritten = rewriteBulkDataURI(bulkDataURINode.asText(), studyInstanceUID, examinationUID,
-                        serieInstanceUID, acquisitionUID);
+                        seriesToVirtualUIDs);
                 if (rewritten != null) {
                     ((ObjectNode) root).put(BULK_DATA_URI, rewritten);
                 }
             }
             for (JsonNode child : root) {
                 if (child.isContainerNode()) {
-                    rewriteBulkDataURIs(child, studyInstanceUID, examinationUID, serieInstanceUID, acquisitionUID);
+                    rewriteBulkDataURIs(child, studyInstanceUID, examinationUID, seriesToVirtualUIDs);
                 }
             }
         }
     }
 
     private String rewriteBulkDataURI(String bulkDataURI, String studyInstanceUID, String examinationUID,
-            String serieInstanceUID, String acquisitionUID) {
+            Map<String, String> seriesToVirtualUIDs) {
         int index = bulkDataURI.indexOf(STUDIES_PATH);
         if (index == -1) {
             return null;
@@ -340,8 +441,11 @@ public class DICOMWebApiController implements DICOMWebApi {
         for (int i = 1; i < segments.length; i++) {
             if ("studies".equals(segments[i - 1]) && segments[i].equals(studyInstanceUID)) {
                 segments[i] = examinationUID;
-            } else if ("series".equals(segments[i - 1]) && segments[i].equals(serieInstanceUID)) {
-                segments[i] = acquisitionUID;
+            } else if ("series".equals(segments[i - 1])) {
+                String virtualUID = seriesToVirtualUIDs.get(segments[i]);
+                if (virtualUID != null) {
+                    segments[i] = virtualUID;
+                }
             }
         }
         return viewerBaseUrl + "/" + String.join("/", segments);
