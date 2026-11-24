@@ -374,6 +374,41 @@ https://docs.docker.com/storage/volumes/
 
 
 
+## CHANGE THE SECRETS OF AN EXISTING INSTALL
+
+An install created before the secrets moved to `.env` still has the old default passwords in its
+data stores (database `password`, PACS Postgres `pacs`, PACS LDAP `secret`, RabbitMQ `guest`) and
+database accounts with all rights on every schema. MariaDB, Postgres and the LDAP server only read
+their passwords when they create their volume, so new values in `.env` are not enough: the stores
+must be changed too, or the microservices are refused.
+
+`rotate-secrets.sh` does it for the Shanoir database, the Keycloak database, the PACS Postgres and
+the PACS LDAP. It also reduces each database account to the rights of its own schema, so that the
+install ends up like a new one. It can be run again, and without `--apply` it only checks.
+
+1. Back up the database volumes and your current `.env`.
+2. Update the repository, create the new `.env` from `.env.example` (`cp .env.example .env`), set
+   the secrets (one different password per account, letters and digits only, eg.
+   `openssl rand -hex 32`) and your other settings, then run `./check-env.sh`.
+3. Stop what uses the stores and keep the stores running:
+   ```
+   docker compose stop users studies import datasets preclinical nifti-conversion keycloak dcm4chee-arc nginx
+   ```
+4. Check what it will do, then do it. The stores must still accept their current root password:
+   the default of the old releases, or the one you give with `OLD_SHANOIR_DB_ROOT_PASSWORD`,
+   `OLD_SHANOIR_KEYCLOAK_DB_ROOT_PASSWORD`, `OLD_SHANOIR_PACS_LDAP_CONFIG_PASSWORD`.
+   ```
+   ./rotate-secrets.sh
+   ./rotate-secrets.sh --apply
+   ```
+5. Start everything again, so that each container gets the new values:
+   ```
+   docker compose up -d
+   ```
+
+Not handled by the script: RabbitMQ (one command, see `.env.example`) and the Keycloak admin account
+(put in `.env` the password it already has).
+
 ## Migrations
 
 [db-changes](https://github.com/fli-iam/shanoir-ng/tree/develop/docker-compose/database-migrations/db-changes)
